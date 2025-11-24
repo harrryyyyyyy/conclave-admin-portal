@@ -17,6 +17,9 @@ export const ENDPOINTS = {
     PRODUCTS_LIST: "/admin/products",
     PRODUCTS_ADD: "/admin/products/add",
     PRODUCTS_UPDATE_STATUS: "/admin/products/updateStatus",
+    getAgendas: "/admin/agendas",
+    addAgenda: "/admin/agendas/add",
+    updateAgendaStatus: (id: number | string) => `/admin/agendas/updateStatus/${id}`,
 };
 
 export async function apiRequest(path: string, options: RequestInit = {}) {
@@ -214,5 +217,25 @@ export async function updateProductStatus(id: number) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
+    });
+}
+
+export async function getAgendas() {
+    return apiRequest(ENDPOINTS.getAgendas, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+    });
+}
+
+export async function addAgenda(fd: FormData) {
+    return apiRequest(ENDPOINTS.addAgenda, {
+        method: "POST",
+        body: fd,
+    });
+}
+
+export async function deleteAgenda(id: number) {
+    return apiRequest(ENDPOINTS.updateAgendaStatus(id), {
+        method: "POST",
     });
 }

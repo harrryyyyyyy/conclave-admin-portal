@@ -18,11 +18,9 @@ export default function VideosPage() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // role (same pattern as UsersPage)
     const [role, setRole] = useState<"user" | "super" | null>(null);
     const isSuper = role === "super";
 
-    // single video form state
     const [title, setTitle] = useState("");
     const [caption, setCaption] = useState("");
     const [url, setUrl] = useState("");
@@ -50,9 +48,7 @@ export default function VideosPage() {
         return {
             id: Number(item.id),
             title: item.title ?? "",
-            // try multiple possible backend keys for caption
             caption: item.caption ?? item.description ?? item.category ?? "",
-            // try multiple possible backend keys for url
             url: item.url ?? item.video_url ?? item.video ?? "",
             status: statusBool,
         };
@@ -89,14 +85,13 @@ export default function VideosPage() {
         if (e) e.preventDefault();
         setError(null);
 
-        if (!title.trim() || !url.trim()) {
-            setError("Please provide at least a Video Title and Video URL.");
+        if (!title.trim() || !url.trim() || !caption.trim()) {
+            setError("Please fill in all the details.");
             return;
         }
 
         setSaving(true);
         try {
-            // API expects: { title, speaker?, category?, url }
             await addVideo({
                 title: title.trim(),
                 category: caption.trim() || undefined,
@@ -117,7 +112,6 @@ export default function VideosPage() {
         }
     }
 
-    // super user toggles status; backend negates current value
     async function setStatus(id: number, newStatus: boolean) {
         const confirmText = newStatus ? "Approve this video?" : "Are you sure you want to delete this video?";
         if (!confirm(confirmText)) return;
@@ -189,6 +183,7 @@ export default function VideosPage() {
                         maxLength={200}
                         onChange={(e) => setCaption(e.target.value)}
                         placeholder="Enter video caption/description"
+                        required
                         rows={3}
                     />
 
