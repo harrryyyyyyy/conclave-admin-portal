@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { getNews, addNews, deleteNews, updateNewsStatus } from "@/lib/api";
+import { getNews, addNews, deleteNews, updateNewsStatus, editNews } from "@/lib/api";
 import { getMockRole } from "@/lib/mockRole";
 
 type NewsItem = {
@@ -10,6 +10,8 @@ type NewsItem = {
   created_at?: string;
   status?: boolean;
 };
+
+const NEWS_MAX_LENGTH = 200;
 
 export default function NewsPage() {
   const [items, setItems] = useState<NewsItem[]>([]);
@@ -20,6 +22,10 @@ export default function NewsPage() {
 
   const [role, setRole] = useState<"user" | "super" | null>(null);
   const isSuper = role === "super";
+
+  // editing state
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingContent, setEditingContent] = useState<string>("");
 
   function normalizeNews(n: any): NewsItem {
     const raw = n.status ?? n.approved ?? n.is_approved ?? n.registation_Status;
@@ -44,6 +50,30 @@ export default function NewsPage() {
       created_at: n.created_at,
       status: statusBool,
     };
+  }
+
+  function fmtDate(s?: string) {
+    if (!s) return "-";
+    try {
+      const d = new Date(s);
+      return d.toLocaleString();
+    } catch {
+      return s;
+    }
+  }
+
+  // Remove HTML tags and trim. This is safer than allowing raw HTML in content.
+  function stripHtmlTags(input: string) {
+    return input.replace(/<[^>]*>/g, "");
+  }
+
+  // sanitize and basic validation for news content
+  function sanitizeNewsContent(raw: string) {
+    // 1) remove tags
+    const noTags = stripHtmlTags(raw);
+    // 2) normalize whitespace and trim
+    const normalized = noTags.replace(/\s+/g, " ").trim();
+    return normalized;
   }
 
   useEffect(() => {
@@ -73,28 +103,25 @@ export default function NewsPage() {
     };
   }, []);
 
-  function fmtDate(s?: string) {
-    if (!s) return "-";
-    try {
-      const d = new Date(s);
-      return d.toLocaleString();
-    } catch {
-      return s;
-    }
-  }
-
   async function handleAdd(e?: React.FormEvent) {
     if (e) e.preventDefault();
     setError(null);
 
-    if (!content.trim()) {
-      setError("Please enter news content.");
+    const cleaned = sanitizeNewsContent(content);
+
+    if (!cleaned) {
+      setError("Please enter news content (HTML is not allowed).");
+      return;
+    }
+
+    if (cleaned.length > NEWS_MAX_LENGTH) {
+      setError(`News content must be ${NEWS_MAX_LENGTH} characters or less.`);
       return;
     }
 
     setSaving(true);
     try {
-      await addNews(content.trim());
+      await addNews(cleaned);
       const data = await getNews();
       setItems(Array.isArray(data) ? data.map(normalizeNews) : []);
       setContent("");
@@ -123,7 +150,6 @@ export default function NewsPage() {
     }
   }
 
-  // super user: delete (hard delete)
   async function handleDelete(id: number) {
     if (!confirm("Are you sure you want to delete this news?")) return;
     setError(null);
@@ -136,6 +162,56 @@ export default function NewsPage() {
     }
   }
 
+  // ----- edit flow (validation same as add) -----
+  function startEdit(it: NewsItem) {
+    setEditingId(it.id);
+    setEditingContent(it.content ?? "");
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingContent("");
+    setError(null);
+  }
+
+  async function saveEdit(id: number) {
+    setError(null);
+
+    const cleaned = sanitizeNewsContent(editingContent);
+
+    if (!cleaned) {
+      setError("Please enter news content (HTML is not allowed).");
+      return;
+    }
+    if (cleaned.length > NEWS_MAX_LENGTH) {
+      setError(`News content must be ${NEWS_MAX_LENGTH} characters or less.`);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // call backend helper; backend should set status=false on edit
+      await editNews(id, cleaned);
+
+      // refresh items from server
+      const data = await getNews();
+      const arr = Array.isArray(data) ? data.map(normalizeNews) : [];
+      setItems(arr);
+
+      // Safety: ensure edited item shows pending in UI even if backend forgot
+      setItems((prev) => prev.map((p) => (p.id === id ? { ...p, status: false } : p)));
+
+      cancelEdit();
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message ? String(err.message) : "Failed to update news.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ----- UI -----
   return (
     <section>
       <h2>News</h2>
@@ -156,7 +232,9 @@ export default function NewsPage() {
       )}
 
       <form onSubmit={handleAdd} style={{ marginBottom: 20 }}>
-        <label style={{ fontWeight: 700, color: "#c22053" }}>News Content: <span style={{ color: "red" }}>*</span></label>
+        <label style={{ fontWeight: 700, color: "#c22053" }}>
+          News Content: <span style={{ color: "red" }}>*</span>
+        </label>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -164,6 +242,7 @@ export default function NewsPage() {
           className="input"
           style={{ marginTop: 8 }}
           placeholder="Enter news..."
+          maxLength={NEWS_MAX_LENGTH}
         />
         <div style={{ marginTop: 12 }}>
           <button type="submit" className="btn btn-primary" disabled={saving}>
@@ -185,19 +264,54 @@ export default function NewsPage() {
                 <th style={{ width: 80 }}>ID</th>
                 <th>Content</th>
                 <th style={{ width: 220 }}>Created At</th>
-                <th style={{ width: 220 }}>{isSuper ? "Actions" : "Status"}</th>
+                <th style={{ width: 220 }}>{isSuper ? "Actions" : "Status / Actions"}</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it) => (
                 <tr key={it.id}>
                   <td>{it.id}</td>
-                  <td style={{ whiteSpace: "pre-wrap" }}>{it.content}</td>
+                  <td style={{ whiteSpace: "pre-wrap", maxWidth: 600 }}>
+                    {editingId === it.id ? (
+                      <div>
+                        <textarea
+                          value={editingContent}
+                          rows={4}
+                          style={{ width: "100%" }}
+                          onChange={(e) => setEditingContent(e.target.value)}
+                          maxLength={NEWS_MAX_LENGTH}
+                        />
+                        <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                          <button
+                            className="btn btn-primary"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              saveEdit(it.id);
+                            }}
+                            disabled={saving}
+                          >
+                            {saving ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            className="btn"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              cancelEdit();
+                            }}
+                            style={{ background: "#fff", color: "#c22053" }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>{it.content}</div>
+                    )}
+                  </td>
                   <td>{fmtDate(it.created_at)}</td>
                   <td>
                     {isSuper ? (
                       it.status ? (
-                        // status === true → only Delete
                         <button
                           className="btn"
                           style={{
@@ -212,7 +326,6 @@ export default function NewsPage() {
                           Delete
                         </button>
                       ) : (
-                        // status === false → only Approve
                         <button
                           className="btn"
                           style={{
@@ -228,17 +341,34 @@ export default function NewsPage() {
                         </button>
                       )
                     ) : (
-                      // NORMAL USER VIEW: only badge
-                      <span
-                        style={{
-                          padding: "6px 10px",
-                          borderRadius: 8,
-                          background: it.status ? "#e6fff2" : "#fff6f6",
-                          color: it.status ? "#0a7a3f" : "#b30000",
-                        }}
-                      >
-                        {it.status ? "Approved" : "Pending"}
-                      </span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 8,
+                            background: it.status ? "#e6fff2" : "#fff6f6",
+                            color: it.status ? "#0a7a3f" : "#b30000",
+                          }}
+                        >
+                          {it.status ? "Approved" : "Pending"}
+                        </span>
+
+                        {editingId === null || editingId === it.id ? (
+                          <button
+                            className="btn"
+                            style={{
+                              background: "#fff",
+                              color: "#2b2b2b",
+                              border: "1px solid rgba(0,0,0,0.06)",
+                              padding: "6px 10px",
+                              borderRadius: 8,
+                            }}
+                            onClick={() => startEdit(it)}
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+                      </div>
                     )}
                   </td>
                 </tr>

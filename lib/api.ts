@@ -7,6 +7,7 @@ export const ENDPOINTS = {
     NEWS_ADD: "/admin/news/add",
     NEWS_DELETE: (id: number | string) => `/admin/news/delete/${id}`,
     NEWS_UPDATE_STATUS: "/admin/news/updateStatus",
+    NEWS_EDIT: `/admin/news/edit`,
     USERS_LIST: "/admin/users",
     USERS_ADD: "/admin/users/add",
     USERS_UPLOAD_CSV: "/admin/users/upload_csv",
@@ -126,6 +127,13 @@ export async function updateNewsStatus(id: number) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
+    });
+}
+
+export async function editNews(id: number, content: string) {
+    return apiRequest(ENDPOINTS.NEWS_EDIT, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, content }),
     });
 }
 
